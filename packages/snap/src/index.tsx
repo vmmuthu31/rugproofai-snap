@@ -3,207 +3,347 @@ import type {
   OnRpcRequestHandler,
   OnTransactionHandler,
 } from '@metamask/snaps-sdk';
-import { panel, text, heading, divider } from '@metamask/snaps-sdk';
+import { panel, text, heading, divider, copyable } from '@metamask/snaps-sdk';
+
+declare const snap: {
+  request: (args: { method: string; params: any }) => Promise<any>;
+};
 
 // RugProof API configuration
-const RUGPROOF_API_BASE = 'https://rugproofai.vercel.app/api/v1/security';
-const API_KEY =
-  'rp_2f81c4226dc01e8d4908880f8bacba4db76cd7fbb82a5779532c7d1a8efb650f';
+const RUGPROOF_API_BASE = 'https://api.rugproofai.com/v1/security';
 
-// Types for RugProof API responses and RPC parameters
-interface SnapParams {
+// Types for RugProof API responses
+type ContractAnalysis = {
+  contract: {
+    address: string;
+    isVerified: boolean;
+    isProxy: boolean;
+    hasPermissions: boolean;
+  };
+  security: {
+    riskLevel: 'low' | 'medium' | 'high';
+    risks: string[];
+  };
+};
+
+type HoneypotAnalysis = {
+  security: {
+    isHoneypot: boolean;
+    riskLevel: 'low' | 'medium' | 'high';
+    riskScore: number;
+  };
+  trading: {
+    buyTax: number;
+    sellTax: number;
+  };
+  flags: string[];
+};
+
+type WalletAnalysis = {
+  wallet: {
+    totalTokens: number;
+    spamTokens: number;
+    totalNfts: number;
+    spamNfts: number;
+  };
+  security: {
+    riskLevel: 'low' | 'medium' | 'high';
+    riskScore: number;
+    threats: string[];
+  };
+  detectedThreats: {
+    type: string;
+    address: string;
+    name: string;
+    risk: 'low' | 'medium' | 'high';
+  }[];
+};
+
+type SnapParams = {
   address: string;
   chainId?: string;
-}
+};
 
 /**
- * Make API request with proper error handling and timeout
+ * @description Analyze contract security using RugProof API
+ * Analyze contract security using RugProof API
+ * @param address - The address of the contract to analyze
+ * @param chainId - The chain ID of the contract
+ * @returns The contract analysis or null if the analysis fails
  */
-async function makeApiRequest(endpoint: string, body: object): Promise<any> {
-  const url = `${RUGPROOF_API_BASE}/${endpoint}`;
-
+async function analyzeContract(
+  address: string,
+  chainId: string,
+): Promise<ContractAnalysis | null> {
   try {
-    console.log(`Making API request to: ${url}`);
-    console.log('Request body:', JSON.stringify(body));
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-    const response = await fetch(url, {
+    const response = await fetch(`${RUGPROOF_API_BASE}/contract`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${API_KEY}`,
+        // Note: In production, API key should be handled securely
+        Authorization:
+          'Bearer rp_2f81c4226dc01e8d4908880f8bacba4db76cd7fbb82a5779532c7d1a8efb650f',
       },
-      body: JSON.stringify(body),
-      signal: controller.signal,
+      body: JSON.stringify({
+        address,
+        chain: chainId,
+      }),
     });
 
-    clearTimeout(timeoutId);
+    if (!response.ok) {
+      console.error('Contract analysis failed:', response.statusText);
+      return null;
+    }
+    const data = (await response.json()) as { data: ContractAnalysis };
+    return data.data;
+  } catch (error) {
+    console.error('Error analyzing contract:', error);
+    return null;
+  }
+}
 
-    console.log(`Response status: ${response.status}`);
+/**
+ * @description Check if token is honeypot using RugProof API
+ * @param address - The address of the token to check
+ * @param chainId - The chain ID of the token
+ * @returns The honeypot analysis or null if the analysis fails
+ */
+async function checkHoneypot(
+  address: string,
+  chainId: string,
+): Promise<HoneypotAnalysis | null> {
+  try {
+    const response = await fetch(`${RUGPROOF_API_BASE}/honeypot`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:
+          'Bearer rp_2f81c4226dc01e8d4908880f8bacba4db76cd7fbb82a5779532c7d1a8efb650f',
+      },
+      body: JSON.stringify({
+        address,
+        chain: chainId,
+      }),
+    });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`API error response: ${errorText}`);
-      throw new Error(`API request failed: ${response.status} - ${errorText}`);
+      console.error('Honeypot check failed:', response.statusText);
+      return null;
     }
 
-    const data = await response.json();
-    console.log('API response data:', data);
-
-    if (data.success && data.data) {
-      return data.data;
-    } else {
-      throw new Error(
-        `API returned unsuccessful response: ${JSON.stringify(data)}`,
-      );
-    }
-  } catch (error: any) {
-    console.error('API request error:', error);
-
-    if (error.name === 'AbortError') {
-      throw new Error('Request timed out after 10 seconds');
-    }
-
-    // Re-throw with more context
-    throw new Error(`Network request failed: ${error.message}`);
+    const data = (await response.json()) as { data: HoneypotAnalysis };
+    return data.data;
+  } catch (error) {
+    console.error('Error checking honeypot:', error);
+    return null;
   }
 }
 
 /**
- * Get risk level emoji
+ * @description Scan wallet for spam tokens using RugProof API
+ * @param address - The address of the wallet to scan
+ * @param chainId - The chain ID of the wallet
+ * @returns The wallet analysis or null if the analysis fails
  */
-function getRiskEmoji(riskLevel: string): string {
-  switch (riskLevel?.toLowerCase()) {
-    case 'high':
-      return '🚨';
-    case 'medium':
-      return '⚠️';
-    case 'low':
-      return '✅';
-    default:
-      return '❓';
+async function scanWallet(
+  address: string,
+  chainId: string,
+): Promise<WalletAnalysis | null> {
+  try {
+    const response = await fetch(`${RUGPROOF_API_BASE}/wallet`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:
+          'Bearer rp_2f81c4226dc01e8d4908880f8bacba4db76cd7fbb82a5779532c7d1a8efb650f',
+      },
+      body: JSON.stringify({
+        address,
+        chain: chainId,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Wallet scan failed:', response.statusText);
+      return null;
+    }
+
+    const data = (await response.json()) as { data: WalletAnalysis };
+    return data.data;
+  } catch (error) {
+    console.error('Error scanning wallet:', error);
+    return null;
   }
 }
 
 /**
- * Handle transaction analysis before signing
+ * @description Get risk level emoji and color
+ * @param riskLevel - The risk level to get the emoji and color for
+ * @returns The emoji and color for the risk level
+ */
+function getRiskIndicator(riskLevel: string): { emoji: string; color: string } {
+  switch (riskLevel) {
+    case 'high':
+      return { emoji: '🚨', color: '#ff4444' };
+    case 'medium':
+      return { emoji: '⚠️', color: '#ffaa00' };
+    case 'low':
+      return { emoji: '✅', color: '#44ff44' };
+    default:
+      return { emoji: '❓', color: '#888888' };
+  }
+}
+
+/**
+ * @description Handle transaction analysis before signing
+ * @param params - The transaction parameters
+ * @param params.transaction - The transaction to analyze
+ * @param params.chainId - The chain ID of the transaction
+ * @returns The transaction analysis or null if the analysis fails
  */
 export const onTransaction: OnTransactionHandler = async ({
   transaction,
   chainId,
 }) => {
-  console.log('Transaction insight triggered');
-  console.log('Transaction:', transaction);
-  console.log('Chain ID:', chainId);
-
   try {
-    // Extract contract address from transaction
-    const contractAddress = transaction.to;
-    if (!contractAddress) {
+    const toAddress = transaction.to;
+    if (!toAddress) {
       return {
         content: panel([
           heading('RugProof Security Check'),
-          text('⚠️ No contract address found in transaction'),
+          text('⚠️ Transaction to unknown address detected.'),
+          text('Please verify the transaction details carefully.'),
         ]),
       };
     }
 
-    // Quick honeypot check for the contract
-    try {
-      const honeypotData = await makeApiRequest('honeypot', {
-        address: contractAddress,
-        chain: chainId || '1',
+    // Analyze the contract being interacted with
+    const contractAnalysis = await analyzeContract(toAddress, chainId);
+    const honeypotAnalysis = await checkHoneypot(toAddress, chainId);
+
+    if (!contractAnalysis && !honeypotAnalysis) {
+      return {
+        content: panel([
+          heading('RugProof Security Check'),
+          text('🔍 Unable to analyze contract security.'),
+          text('Proceed with caution and DYOR.'),
+        ]),
+      };
+    }
+
+    const riskLevel =
+      contractAnalysis?.security.riskLevel ??
+      honeypotAnalysis?.security.riskLevel ??
+      'unknown';
+    const { emoji } = getRiskIndicator(riskLevel);
+
+    const warnings: string[] = [];
+
+    // Add contract-specific warnings
+    if (contractAnalysis?.security.risks) {
+      warnings.push(...contractAnalysis.security.risks);
+    }
+
+    // Add honeypot warnings
+    if (honeypotAnalysis?.security.isHoneypot) {
+      warnings.push('HONEYPOT_DETECTED');
+    }
+    if (honeypotAnalysis?.flags) {
+      warnings.push(...honeypotAnalysis.flags);
+    }
+
+    const content = [
+      heading('RugProof Security Analysis'),
+      divider(),
+      text(`${emoji} **Risk Level**: ${riskLevel.toUpperCase()}`),
+      text(`📍 **Contract**: ${toAddress}`),
+    ];
+
+    if (contractAnalysis) {
+      content.push(
+        divider(),
+        text('**Contract Analysis:**'),
+        text(
+          `✅ Verified: ${contractAnalysis.contract.isVerified ? 'Yes' : 'No'}`,
+        ),
+        text(`🔄 Proxy: ${contractAnalysis.contract.isProxy ? 'Yes' : 'No'}`),
+        text(
+          `🔐 Admin Functions: ${
+            contractAnalysis.contract.hasPermissions ? 'Yes' : 'No'
+          }`,
+        ),
+      );
+    }
+
+    if (honeypotAnalysis) {
+      content.push(
+        divider(),
+        text('**Token Analysis:**'),
+        text(
+          `🍯 Honeypot: ${honeypotAnalysis.security.isHoneypot ? 'YES' : 'No'}`,
+        ),
+        text(`💰 Buy Tax: ${honeypotAnalysis.trading.buyTax}%`),
+        text(`💸 Sell Tax: ${honeypotAnalysis.trading.sellTax}%`),
+      );
+    }
+
+    if (warnings.length > 0) {
+      content.push(divider(), text('**⚠️ Security Warnings:**'));
+      warnings.slice(0, 3).forEach((warning) => {
+        content.push(text(`• ${warning.replace(/_/gu, ' ')}`));
       });
-
-      const riskEmoji = getRiskEmoji(honeypotData.security?.riskLevel);
-      const isHoneypot = honeypotData.security?.isHoneypot;
-      const buyTax = honeypotData.trading?.buyTax || 0;
-      const sellTax = honeypotData.trading?.sellTax || 0;
-
-      return {
-        content: panel([
-          heading('🛡️ RugProof Security Analysis'),
-          divider(),
-          text(`**Contract:** ${contractAddress}`),
-          text(
-            `**Security Status:** ${riskEmoji} ${honeypotData.security?.riskLevel?.toUpperCase() || 'UNKNOWN'}`,
-          ),
-          text(
-            `**Honeypot Risk:** ${isHoneypot ? '🚨 HIGH RISK' : '✅ Low Risk'}`,
-          ),
-          text(`**Buy Tax:** ${buyTax}%`),
-          text(`**Sell Tax:** ${sellTax}%`),
-          divider(),
-          text(
-            isHoneypot
-              ? '⚠️ **WARNING:** This contract may be a honeypot. Proceed with extreme caution!'
-              : '✅ Contract appears safe based on initial analysis.',
-          ),
-        ]),
-      };
-    } catch (apiError: any) {
-      console.error('API error in transaction insight:', apiError);
-      return {
-        content: panel([
-          heading('🛡️ RugProof Security Check'),
-          text(`**Contract:** ${contractAddress}`),
-          text('⚠️ Unable to perform security analysis'),
-          text(`Error: ${apiError.message}`),
-          text('Please verify the contract manually before proceeding.'),
-        ]),
-      };
     }
-  } catch (error: any) {
-    console.error('Transaction insight error:', error);
+
+    content.push(divider(), text('🔒 **Powered by RugProof AI**'));
+
+    return {
+      content: panel(content),
+    };
+  } catch (error) {
+    console.error('Transaction analysis error:', error);
     return {
       content: panel([
-        heading('🛡️ RugProof Security Check'),
-        text('❌ Security analysis failed'),
-        text(`Error: ${error.message}`),
-        text('Please verify the transaction manually.'),
+        heading('RugProof Security Check'),
+        text('❌ Error analyzing transaction security.'),
+        text('Please proceed with extreme caution.'),
       ]),
     };
   }
 };
 
 /**
- * Handle RPC requests
+ * @description Handle RPC requests for custom functionality
+ * @param request - The RPC request
+ * @param request.request - The request object containing method and params
+ * @returns The RPC response
  */
 export const onRpcRequest: OnRpcRequestHandler = async ({ request }) => {
-  console.log('RPC request received:', request.method);
-  console.log('RPC params:', request.params);
+  switch (request.method) {
+    case 'rugproof_honeypot_check':
+      return await handleHoneypotCheck(request.params as unknown as SnapParams);
 
-  try {
-    switch (request.method) {
-      case 'rugproof_honeypot_check':
-        return await handleHoneypotCheck(
-          request.params as unknown as SnapParams,
-        );
+    case 'rugproof_contract_analysis':
+      return await handleContractAnalysis(
+        request.params as unknown as SnapParams,
+      );
 
-      case 'rugproof_contract_analysis':
-        return await handleContractAnalysis(
-          request.params as unknown as SnapParams,
-        );
+    case 'rugproof_wallet_scan':
+      return await handleWalletScan(request.params as unknown as SnapParams);
 
-      case 'rugproof_wallet_scan':
-        return await handleWalletScan(request.params as unknown as SnapParams);
+    case 'rugproof_ai_summary':
+      return await handleAISummary(request.params as unknown as SnapParams);
 
-      case 'rugproof_ai_summary':
-        return await handleAISummary(request.params as unknown as SnapParams);
-
-      default:
-        throw new Error(`Unsupported RPC method: ${request.method}`);
-    }
-  } catch (error: any) {
-    console.error(`RPC method ${request.method} failed:`, error);
-    throw new Error(`RPC method failed: ${error.message}`);
+    default:
+      throw new Error('Method not found.');
   }
 };
 
 /**
- * Handle honeypot check
+ * @description Handle honeypot check RPC request
+ * @param params - The parameters for the honeypot check
+ * @param params.address - The address of the token to check
+ * @param params.chainId - The chain ID of the token
+ * @returns The honeypot check result
  */
 async function handleHoneypotCheck(params: SnapParams): Promise<{
   isHoneypot: boolean;
@@ -212,33 +352,56 @@ async function handleHoneypotCheck(params: SnapParams): Promise<{
   buyTax: number;
   sellTax: number;
 }> {
-  console.log('Handling honeypot check for:', params);
+  const { address, chainId } = params;
 
-  if (!params?.address) {
+  if (!address) {
     throw new Error('Address parameter is required');
   }
 
-  try {
-    const data = await makeApiRequest('honeypot', {
-      address: params.address,
-      chain: params.chainId || '1',
-    });
+  const analysis = await checkHoneypot(address, chainId ?? '1');
 
-    return {
-      isHoneypot: data.security?.isHoneypot || false,
-      riskLevel: data.security?.riskLevel || 'unknown',
-      riskScore: data.security?.riskScore || 0,
-      buyTax: data.trading?.buyTax || 0,
-      sellTax: data.trading?.sellTax || 0,
-    };
-  } catch (error: any) {
-    console.error('Honeypot check failed:', error);
-    throw new Error(`Honeypot analysis failed: ${error.message}`);
+  if (!analysis) {
+    throw new Error('Unable to analyze token');
   }
+
+  const { emoji } = getRiskIndicator(analysis.security.riskLevel);
+
+  await snap.request({
+    method: 'snap_dialog',
+    params: {
+      type: 'alert',
+      content: panel([
+        heading('🍯 Honeypot Analysis'),
+        divider(),
+        text(
+          `${emoji} **Risk Level**: ${analysis.security.riskLevel.toUpperCase()}`,
+        ),
+        text(`🍯 **Honeypot**: ${analysis.security.isHoneypot ? 'YES' : 'No'}`),
+        text(`💰 **Buy Tax**: ${analysis.trading.buyTax}%`),
+        text(`💸 **Sell Tax**: ${analysis.trading.sellTax}%`),
+        text(`📊 **Risk Score**: ${analysis.security.riskScore}/100`),
+        divider(),
+        copyable(address),
+        text('🔒 Powered by RugProof AI'),
+      ]),
+    },
+  });
+
+  return {
+    isHoneypot: analysis.security.isHoneypot,
+    riskLevel: analysis.security.riskLevel,
+    riskScore: analysis.security.riskScore,
+    buyTax: analysis.trading.buyTax,
+    sellTax: analysis.trading.sellTax,
+  };
 }
 
 /**
- * Handle contract analysis
+ * @description Handle contract analysis RPC request
+ * @param params - The parameters for the contract analysis
+ * @param params.address - The address of the contract to analyze
+ * @param params.chainId - The chain ID of the contract
+ * @returns The contract analysis result
  */
 async function handleContractAnalysis(params: SnapParams): Promise<{
   riskLevel: string;
@@ -247,33 +410,61 @@ async function handleContractAnalysis(params: SnapParams): Promise<{
   hasPermissions: boolean;
   risks: string[];
 }> {
-  console.log('Handling contract analysis for:', params);
+  const { address, chainId } = params;
 
-  if (!params?.address) {
+  if (!address) {
     throw new Error('Address parameter is required');
   }
 
-  try {
-    const data = await makeApiRequest('contract', {
-      address: params.address,
-      chain: params.chainId || '1',
-    });
+  const analysis = await analyzeContract(address, chainId ?? '1');
 
-    return {
-      riskLevel: data.security?.riskLevel || 'unknown',
-      isVerified: data.contract?.isVerified || false,
-      isProxy: data.contract?.isProxy || false,
-      hasPermissions: data.contract?.hasPermissions || false,
-      risks: data.security?.risks || [],
-    };
-  } catch (error: any) {
-    console.error('Contract analysis failed:', error);
-    throw new Error(`Contract analysis failed: ${error.message}`);
+  if (!analysis) {
+    throw new Error('Unable to analyze contract');
   }
+
+  const { emoji } = getRiskIndicator(analysis.security.riskLevel);
+
+  await snap.request({
+    method: 'snap_dialog',
+    params: {
+      type: 'alert',
+      content: panel([
+        heading('🔍 Contract Analysis'),
+        divider(),
+        text(
+          `${emoji} **Risk Level**: ${analysis.security.riskLevel.toUpperCase()}`,
+        ),
+        text(`✅ **Verified**: ${analysis.contract.isVerified ? 'Yes' : 'No'}`),
+        text(
+          `🔄 **Proxy Contract**: ${analysis.contract.isProxy ? 'Yes' : 'No'}`,
+        ),
+        text(
+          `🔐 **Admin Functions**: ${
+            analysis.contract.hasPermissions ? 'Yes' : 'No'
+          }`,
+        ),
+        divider(),
+        copyable(address),
+        text('🔒 Powered by RugProof AI'),
+      ]),
+    },
+  });
+
+  return {
+    riskLevel: analysis.security.riskLevel,
+    isVerified: analysis.contract.isVerified,
+    isProxy: analysis.contract.isProxy,
+    hasPermissions: analysis.contract.hasPermissions,
+    risks: analysis.security.risks,
+  };
 }
 
 /**
- * Handle wallet scan
+ * @description Handle wallet scan RPC request
+ * @param params - The parameters for the wallet scan
+ * @param params.address - The address of the wallet to scan
+ * @param params.chainId - The chain ID of the wallet
+ * @returns The wallet scan result
  */
 async function handleWalletScan(params: SnapParams): Promise<{
   riskLevel: string;
@@ -284,86 +475,96 @@ async function handleWalletScan(params: SnapParams): Promise<{
   spamNfts: number;
   threats: string[];
 }> {
-  console.log('Handling wallet scan for:', params);
+  const { address, chainId } = params;
 
-  if (!params?.address) {
+  if (!address) {
     throw new Error('Address parameter is required');
   }
 
-  try {
-    const data = await makeApiRequest('wallet', {
-      address: params.address,
-      chain: params.chainId || '1',
-    });
+  const analysis = await scanWallet(address, chainId ?? '1');
 
-    return {
-      riskLevel: data.security?.riskLevel || 'unknown',
-      riskScore: data.security?.riskScore || 0,
-      totalTokens: data.wallet?.totalTokens || 0,
-      spamTokens: data.wallet?.spamTokens || 0,
-      totalNfts: data.wallet?.totalNfts || 0,
-      spamNfts: data.wallet?.spamNfts || 0,
-      threats: data.security?.threats || [],
-    };
-  } catch (error: any) {
-    console.error('Wallet scan failed:', error);
-    throw new Error(`Wallet scan failed: ${error.message}`);
+  if (!analysis) {
+    throw new Error('Unable to scan wallet');
   }
+
+  const { emoji } = getRiskIndicator(analysis.security.riskLevel);
+  const spamPercentage =
+    analysis.wallet.totalTokens > 0
+      ? Math.round(
+          (analysis.wallet.spamTokens / analysis.wallet.totalTokens) * 100,
+        )
+      : 0;
+
+  await snap.request({
+    method: 'snap_dialog',
+    params: {
+      type: 'alert',
+      content: panel([
+        heading('🔍 Wallet Security Scan'),
+        divider(),
+        text(
+          `${emoji} **Risk Level**: ${analysis.security.riskLevel.toUpperCase()}`,
+        ),
+        text(`📊 **Risk Score**: ${analysis.security.riskScore}/100`),
+        divider(),
+        text('**Token Analysis:**'),
+        text(`🪙 Total Tokens: ${analysis.wallet.totalTokens}`),
+        text(
+          `🚨 Spam Tokens: ${analysis.wallet.spamTokens} (${spamPercentage}%)`,
+        ),
+        text(`🖼️ Total NFTs: ${analysis.wallet.totalNfts}`),
+        text(`🚨 Spam NFTs: ${analysis.wallet.spamNfts}`),
+        divider(),
+        copyable(address),
+        text('🔒 Powered by RugProof AI'),
+      ]),
+    },
+  });
+
+  return {
+    riskLevel: analysis.security.riskLevel,
+    riskScore: analysis.security.riskScore,
+    totalTokens: analysis.wallet.totalTokens,
+    spamTokens: analysis.wallet.spamTokens,
+    totalNfts: analysis.wallet.totalNfts,
+    spamNfts: analysis.wallet.spamNfts,
+    threats: analysis.security.threats,
+  };
 }
 
 /**
- * Handle AI summary generation
+ * @description Handle AI summary RPC request (placeholder for future AI integration)
+ * @param params - The parameters for the AI summary
+ * @param params.address - The address of the wallet to summarize
+ * @returns The AI summary result
  */
 async function handleAISummary(
   params: SnapParams,
 ): Promise<{ message: string }> {
-  console.log('Handling AI summary for:', params);
+  const { address } = params;
 
-  if (!params?.address) {
+  if (!address) {
     throw new Error('Address parameter is required');
   }
 
-  try {
-    // For now, return a simple summary. In the future, this could call an AI endpoint
-    const contractData = await makeApiRequest('contract', {
-      address: params.address,
-      chain: params.chainId || '1',
-    });
+  // This would integrate with your AI agent API
+  await snap.request({
+    method: 'snap_dialog',
+    params: {
+      type: 'alert',
+      content: panel([
+        heading('🤖 AI Security Summary'),
+        divider(),
+        text('🚧 Coming Soon!'),
+        text(
+          'AI-powered security analysis will be available in a future update.',
+        ),
+        divider(),
+        copyable(address),
+        text('🔒 Powered by RugProof AI'),
+      ]),
+    },
+  });
 
-    const honeypotData = await makeApiRequest('honeypot', {
-      address: params.address,
-      chain: params.chainId || '1',
-    });
-
-    const riskLevel =
-      contractData.security?.riskLevel ||
-      honeypotData.security?.riskLevel ||
-      'unknown';
-    const isHoneypot = honeypotData.security?.isHoneypot;
-    const isVerified = contractData.contract?.isVerified;
-
-    let summary = `Security Analysis Summary for ${params.address}:\n\n`;
-    summary += `🛡️ Overall Risk Level: ${riskLevel.toUpperCase()}\n`;
-    summary += `🔍 Contract Verified: ${isVerified ? 'Yes' : 'No'}\n`;
-    summary += `🍯 Honeypot Risk: ${isHoneypot ? 'HIGH RISK' : 'Low Risk'}\n`;
-
-    if (honeypotData.trading) {
-      summary += `💰 Buy Tax: ${honeypotData.trading.buyTax || 0}%\n`;
-      summary += `💰 Sell Tax: ${honeypotData.trading.sellTax || 0}%\n`;
-    }
-
-    if (contractData.security?.risks?.length > 0) {
-      summary += `\n⚠️ Identified Risks:\n`;
-      contractData.security.risks.forEach((risk: string) => {
-        summary += `• ${risk}\n`;
-      });
-    }
-
-    return { message: summary };
-  } catch (error: any) {
-    console.error('AI summary failed:', error);
-    return {
-      message: `Unable to generate summary: ${error.message}. Please try again or check the address manually.`,
-    };
-  }
+  return { message: 'AI summary feature coming soon!' };
 }
