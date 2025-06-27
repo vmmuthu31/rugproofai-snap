@@ -5,12 +5,11 @@ import type {
 } from '@metamask/snaps-sdk';
 import { panel, text, heading, divider, copyable } from '@metamask/snaps-sdk';
 
+import { RUGPROOF_CONFIG, getAuthHeader, validateApiKey } from './config';
+
 declare const snap: {
   request: (args: { method: string; params: any }) => Promise<any>;
 };
-
-// RugProof API configuration
-const RUGPROOF_API_BASE = 'https://api.rugproofai.com/v1/security';
 
 // Types for RugProof API responses
 type ContractAnalysis = {
@@ -75,14 +74,16 @@ async function analyzeContract(
   address: string,
   chainId: string,
 ): Promise<ContractAnalysis | null> {
+  if (!validateApiKey()) {
+    return null;
+  }
+
   try {
-    const response = await fetch(`${RUGPROOF_API_BASE}/contract`, {
+    const response = await fetch(`${RUGPROOF_CONFIG.API_BASE}/contract`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // Note: In production, API key should be handled securely
-        Authorization:
-          'Bearer rp_2f81c4226dc01e8d4908880f8bacba4db76cd7fbb82a5779532c7d1a8efb650f',
+        Authorization: getAuthHeader(),
       },
       body: JSON.stringify({
         address,
@@ -112,13 +113,16 @@ async function checkHoneypot(
   address: string,
   chainId: string,
 ): Promise<HoneypotAnalysis | null> {
+  if (!validateApiKey()) {
+    return null;
+  }
+
   try {
-    const response = await fetch(`${RUGPROOF_API_BASE}/honeypot`, {
+    const response = await fetch(`${RUGPROOF_CONFIG.API_BASE}/honeypot`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization:
-          'Bearer rp_2f81c4226dc01e8d4908880f8bacba4db76cd7fbb82a5779532c7d1a8efb650f',
+        Authorization: getAuthHeader(),
       },
       body: JSON.stringify({
         address,
@@ -149,13 +153,16 @@ async function scanWallet(
   address: string,
   chainId: string,
 ): Promise<WalletAnalysis | null> {
+  if (!validateApiKey()) {
+    return null;
+  }
+
   try {
-    const response = await fetch(`${RUGPROOF_API_BASE}/wallet`, {
+    const response = await fetch(`${RUGPROOF_CONFIG.API_BASE}/wallet`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization:
-          'Bearer rp_2f81c4226dc01e8d4908880f8bacba4db76cd7fbb82a5779532c7d1a8efb650f',
+        Authorization: getAuthHeader(),
       },
       body: JSON.stringify({
         address,

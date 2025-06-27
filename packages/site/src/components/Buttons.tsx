@@ -99,6 +99,24 @@ export const SendHelloButton = (props: ComponentProps<typeof Button>) => {
   return <Button {...props}>Send message</Button>;
 };
 
+export const HoneypotCheckButton = (props: ComponentProps<typeof Button>) => {
+  return <Button {...props}>🍯 Check Honeypot</Button>;
+};
+
+export const ContractAnalysisButton = (
+  props: ComponentProps<typeof Button>,
+) => {
+  return <Button {...props}>🔍 Analyze Contract</Button>;
+};
+
+export const WalletScanButton = (props: ComponentProps<typeof Button>) => {
+  return <Button {...props}>🔒 Scan Wallet</Button>;
+};
+
+export const AISummaryButton = (props: ComponentProps<typeof Button>) => {
+  return <Button {...props}>🤖 AI Summary</Button>;
+};
+
 export const HeaderButtons = () => {
   const requestSnap = useRequestSnap();
   const { isFlask, installedSnap } = useMetaMask();
