@@ -7,11 +7,10 @@
     "url": "https://github.com/vmmuthu31/RugproofAI.git"
   },
   "source": {
-    "shasum": "KsraSAvBkvH2y7tiX7SHz/ZlxOPq1gpfBFaeSTcRmzQ=",
+    "shasum": "Ii3w6g6W1g/XHREu104lBB4nH5S55AP4D0BZ7d5U5dU=",
     "location": {
       "npm": {
         "filePath": "dist/bundle.js",
-        "iconPath": "images/icon.svg",
         "packageName": "rugproof-metamask-snap",
         "registry": "https://registry.npmjs.org/"
       }
