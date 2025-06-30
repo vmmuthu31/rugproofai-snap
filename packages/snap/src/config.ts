@@ -34,6 +34,7 @@ export function validateApiKey(): boolean {
 
 /**
  * Get authorization header for API requests
+ *
  * @returns Authorization header string
  */
 export function getAuthHeader(): string {
