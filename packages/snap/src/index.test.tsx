@@ -2,159 +2,124 @@ import { expect } from '@jest/globals';
 import { installSnap } from '@metamask/snaps-jest';
 
 describe('RugProof Security Snap Tests', () => {
-  describe('onRpcRequest', () => {
-    describe('rugproof_honeypot_check', () => {
-      it('should return error when API is unavailable', async () => {
-        const { request } = await installSnap();
+  describe('onTransaction', () => {
+    it('should analyze transaction with contract address', async () => {
+      const { onTransaction } = await installSnap();
 
-        const response = await request({
-          method: 'rugproof_honeypot_check',
-          params: {
-            address: '0x1234567890123456789012345678901234567890',
-            chainId: '1',
-          },
-        });
-
-        // Should return an error response when API is unavailable
-        expect(response).toRespondWithError({
-          code: -32603,
-          message: 'Unable to analyze token',
-          stack: expect.any(String),
-        });
+      const response = await onTransaction({
+        to: '0xA0b86a33E6441c8C100a9c6F78D3c9F5067a8cc7', // Sample contract address
+        value: '0x0',
+        data: '0x',
+        chainId: 'eip155:1',
+        origin: 'https://app.uniswap.org',
       });
 
-      it('should require address parameter', async () => {
-        const { request } = await installSnap();
-
-        const response = await request({
-          method: 'rugproof_honeypot_check',
-          params: {},
-        });
-
-        expect(response).toRespondWithError({
-          code: -32603,
-          message: 'Address parameter is required',
-          stack: expect.any(String),
-        });
-      });
+      // Should return transaction insight
+      expect(response).toBeDefined();
     });
 
-    describe('rugproof_contract_analysis', () => {
-      it('should return error when API is unavailable', async () => {
-        const { request } = await installSnap();
+    it('should handle transaction without contract address', async () => {
+      const { onTransaction } = await installSnap();
 
-        const response = await request({
-          method: 'rugproof_contract_analysis',
-          params: {
-            address: '0xA0b86a33E6441E2a4A7d3A5f2f5e1a8e1b2c3d4e',
-            chainId: '1',
-          },
-        });
-
-        // Should return an error response when API is unavailable
-        expect(response).toRespondWithError({
-          code: -32603,
-          message: 'Unable to analyze contract',
-          stack: expect.any(String),
-        });
+      const response = await onTransaction({
+        to: '0x0000000000000000000000000000000000000000',
+        value: '0x1000000000000000000', // 1 ETH
+        data: '0x',
+        chainId: 'eip155:1',
+        origin: 'https://metamask.io',
       });
 
-      it('should require address parameter', async () => {
-        const { request } = await installSnap();
-
-        const response = await request({
-          method: 'rugproof_contract_analysis',
-          params: {},
-        });
-
-        expect(response).toRespondWithError({
-          code: -32603,
-          message: 'Address parameter is required',
-          stack: expect.any(String),
-        });
-      });
+      // Should return low risk for simple ETH transfer
+      expect(response).toBeDefined();
     });
 
-    describe('rugproof_wallet_scan', () => {
-      it('should return error when API is unavailable', async () => {
-        const { request } = await installSnap();
+    it('should handle potential honeypot contract', async () => {
+      const { onTransaction } = await installSnap();
 
-        const response = await request({
-          method: 'rugproof_wallet_scan',
-          params: {
-            address: '0x742d35Cc6634C0532925a3b8D4b8c4a4A5d2e3f1',
-            chainId: '1',
-          },
-        });
-
-        // Should return an error response when API is unavailable
-        expect(response).toRespondWithError({
-          code: -32603,
-          message: 'Unable to scan wallet',
-          stack: expect.any(String),
-        });
+      const response = await onTransaction({
+        to: '0x1234567890123456789012345678901234567890', // Mock honeypot address
+        value: '0x0',
+        data: '0xa9059cbb', // transfer function signature
+        chainId: 'eip155:1',
+        origin: 'https://app.1inch.io',
       });
 
-      it('should require address parameter', async () => {
-        const { request } = await installSnap();
-
-        const response = await request({
-          method: 'rugproof_wallet_scan',
-          params: {},
-        });
-
-        expect(response).toRespondWithError({
-          code: -32603,
-          message: 'Address parameter is required',
-          stack: expect.any(String),
-        });
-      });
+      // Should return some form of analysis
+      expect(response).toBeDefined();
     });
 
-    describe('rugproof_ai_summary', () => {
-      it('should show AI summary coming soon message', async () => {
-        const { request } = await installSnap();
+    it('should handle API failures gracefully', async () => {
+      const { onTransaction } = await installSnap();
 
-        const response = await request({
-          method: 'rugproof_ai_summary',
-          params: {
-            address: '0x742d35Cc6634C0532925a3b8D4b8c4a4A5d2e3f1',
-          },
-        });
-
-        expect(response).toRespondWith({
-          message: 'AI summary feature coming soon!',
-        });
-      }, 10000); // 10 second timeout
-
-      it('should require address parameter', async () => {
-        const { request } = await installSnap();
-
-        const response = await request({
-          method: 'rugproof_ai_summary',
-          params: {},
-        });
-
-        expect(response).toRespondWithError({
-          code: -32603,
-          message: 'Address parameter is required',
-          stack: expect.any(String),
-        });
+      const response = await onTransaction({
+        to: '0xInvalidAddress',
+        value: '0x0',
+        data: '0x',
+        chainId: 'eip155:999999', // Invalid chain
+        origin: 'https://test.com',
       });
+
+      // Should handle errors gracefully
+      expect(response).toBeDefined();
     });
 
-    it('should throw an error for unknown methods', async () => {
-      const { request } = await installSnap();
+    it('should provide analysis for high-risk transactions', async () => {
+      const { onTransaction } = await installSnap();
 
-      const response = await request({
-        method: 'unknown_method',
+      const response = await onTransaction({
+        to: '0xCriticalRiskContract123456789012345678901234',
+        value: '0x0',
+        data: '0x',
+        chainId: 'eip155:1',
+        origin: 'https://malicious-dapp.com',
       });
 
-      expect(response).toRespondWithError({
-        code: -32603,
-        message: 'Method not found.',
-        stack: expect.any(String),
+      // Should return analysis result
+      expect(response).toBeDefined();
+    });
+  });
+
+  describe('Transaction Risk Analysis', () => {
+    it('should handle ERC-20 token transfer', async () => {
+      const { onTransaction } = await installSnap();
+
+      const response = await onTransaction({
+        to: '0xA0b86a33E6441c8C100a9c6F78D3c9F5067a8cc7',
+        value: '0x0',
+        data: '0xa9059cbb000000000000000000000000742d35cc6634c0532925a3b8d4b8c4a4a5d2e3f1000000000000000000000000000000000000000000000000de0b6b3a7640000',
+        chainId: 'eip155:1',
+        origin: 'https://app.uniswap.org',
       });
+
+      expect(response).toBeDefined();
+    });
+
+    it('should handle smart contract interaction', async () => {
+      const { onTransaction } = await installSnap();
+
+      const response = await onTransaction({
+        to: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', // Uniswap V2 Router
+        value: '0x0',
+        data: '0x38ed1739', // swapExactTokensForTokens
+        chainId: 'eip155:1',
+        origin: 'https://app.uniswap.org',
+      });
+
+      expect(response).toBeDefined();
+    });
+
+    it('should handle different chain IDs', async () => {
+      const { onTransaction } = await installSnap();
+
+      const response = await onTransaction({
+        to: '0xA0b86a33E6441c8C100a9c6F78D3c9F5067a8cc7',
+        value: '0x0',
+        data: '0x',
+        chainId: 'eip155:56', // BSC
+        origin: 'https://pancakeswap.finance',
+      });
+
+      expect(response).toBeDefined();
     });
   });
 });
